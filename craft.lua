@@ -9,9 +9,7 @@ end
 local function craft(turtle)
     print(table.concat(peripheral.getNames(), ", "))
     local modem = peripheral.wrap("left") or error("No modem attached", 0)
-    if not modem.open(1) then
-        error("Failed to open modem channel 1", 0)
-    end
+    modem.open(1)
 
     while true do
         local event, side, channel, replyChannel, message, distance = os.pullEvent("modem_message")
