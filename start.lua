@@ -417,61 +417,73 @@ local function btn_addcraft()
     choiseadd_window.setBackgroundColour(colors.red)
     choiseadd_window.write("NO")
 
-    while btn_add_choise do
-        os.pullEvent()
-    end
+    if btn_add_choise then
+        local modem = peripheral.wrap("bottom")
+        local channel = 1
 
-    local modem = peripheral.wrap("bottom")
-    local channel = 1
-
-    local turtleSlot = 1
-
-    patternc = getPatternFromBarrel()
-
-    for i = 1, 27 do
-        if (i >= 4 and i < 7) or (i >= 13 and i < 16) or (i >= 22 and i < 25) then
-            if turtleSlot <= 16 then
-                if turtleSlot == 4 or turtleSlot == 8 then
+        local turtleSlot = 1  -- Начинаем с 1-го слота черепашки
+        
+        patternc = getPatternFromBarrel()
+        
+        for i = 1, 27 do
+            -- Проверяем нужные слоты в бочке
+            if (i >= 4 and i < 7) or (i >= 13 and i < 16) or (i >= 22 and i < 25) then
+                if turtleSlot <= 16 then  -- Защита от выхода за пределы
+                    if turtleSlot == 4 or turtleSlot == 8 then
+                        turtleSlot = turtleSlot + 1
+                    end
+                    -- print("Trasfer from " .. i .. " to " .. turtleSlot)
+                    barrel.pushItems("turtle_0", i, 64, turtleSlot)
                     turtleSlot = turtleSlot + 1
                 end
-                barrel.pushItems("turtle_0", i, 64, turtleSlot)
-                turtleSlot = turtleSlot + 1
             end
         end
-    end
 
-    if next(barrel.list()) then
-        bf = true
-        print("Barrel has items")
+
+        -- clearBarrelToStorage()
+
+        if next(barrel.list()) then
+            bf = true
+            print("Barrel has items")
+        else
+            bf = false
+            print("Barrel is empty")
+        end 
+
+        local datac = {
+            command = "craft",
+            count = 64
+        }
+
+        modem.open(1)
+        modem.transmit(channel, channel, datac)
+        print("Command sent")
+
+
+
+
+        for i = 1, 16 do
+            barrel.pullItems("turtle_0", i, 64)
+        end
+
+        craft_items = 0
+        item_name = ""
+
+        for i = 1, 27 do
+            local item = barrel.list()[i]
+            if item then
+                -- print("Slot " .. i .. ": " .. item.name .. " x" .. item.count)
+                craft_items = craft_items + item.count
+                if item_name == "" then
+                    item_name = item.name
+                end
+            else
+                -- print("Slot " .. i .. ": empty")
+            end
+        end
+
     else
-        bf = false
-        print("Barrel is empty")
-    end
-
-    local datac = {
-        command = "craft",
-        count = 64
-    }
-
-    modem.open(1)
-    modem.transmit(channel, channel, datac)
-    print("Command sent")
-
-    for i = 1, 16 do
-        barrel.pullItems("turtle_0", i, 64)
-    end
-
-    craft_items = 0
-    item_name = ""
-
-    for i = 1, 27 do
-        local item = barrel.list()[i]
-        if item then
-            craft_items = craft_items + item.count
-            if item_name == "" then
-                item_name = item.name
-            end
-        end
+        print("Select another option")
     end
 
 end
