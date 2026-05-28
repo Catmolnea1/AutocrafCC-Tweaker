@@ -631,8 +631,8 @@ local function btn_craft(selectedItem, batches)
                 for slot, item in pairs(items) do
                     if item.name == neededItem and item.count > 0 then
                         local take = math.min(remaining, item.count)
-                        storage.peripheral.pushItems(barrel_name, slot, take, targetSlot)
-                        remaining = remaining - take
+                        local moved = storage.peripheral.pushItems(barrel_name, slot, take, targetSlot)
+                        remaining = remaining - moved
                         if remaining <= 0 then break end
                     end
                 end

@@ -19,21 +19,26 @@ local function craft(turtle)
 
         if channel == 1 and message.command == "craft" then
             local requested = message.count
-            local crafted = 0
-
-            while crafted < requested do
-                local remaining = requested - crafted
-                local success = turtle.craft(remaining)
-
-                if not success then
-                    print("Warning: Craft operation failed at " .. crafted .. " items")
-                    break
+            print("=== CRAFT REQUEST ===")
+            print("Requested crafts: " .. requested)
+            print("Inventory before:")
+            for i = 1, 16 do
+                local item = turtle.getItemDetail(i)
+                if item then
+                    print("  Slot " .. i .. ": " .. item.name .. " x" .. item.count)
                 end
-
-                crafted = crafted + remaining
             end
 
-            print("Crafting completed: " .. crafted .. " of " .. requested)
+            local success = turtle.craft(requested)
+
+            print("Craft result: " .. tostring(success))
+            print("Inventory after:")
+            for i = 1, 16 do
+                local item = turtle.getItemDetail(i)
+                if item then
+                    print("  Slot " .. i .. ": " .. item.name .. " x" .. item.count)
+                end
+            end
         end
     end
 end
