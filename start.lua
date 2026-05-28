@@ -417,73 +417,61 @@ local function btn_addcraft()
     choiseadd_window.setBackgroundColour(colors.red)
     choiseadd_window.write("NO")
 
-    if btn_add_choise then
-        local modem = peripheral.wrap("bottom")
-        local channel = 1
+    while btn_add_choise do
+        os.pullEvent()
+    end
 
-        local turtleSlot = 1  -- Начинаем с 1-го слота черепашки
-        
-        patternc = getPatternFromBarrel()
-        
-        for i = 1, 27 do
-            -- Проверяем нужные слоты в бочке
-            if (i >= 4 and i < 7) or (i >= 13 and i < 16) or (i >= 22 and i < 25) then
-                if turtleSlot <= 16 then  -- Защита от выхода за пределы
-                    if turtleSlot == 4 or turtleSlot == 8 then
-                        turtleSlot = turtleSlot + 1
-                    end
-                    -- print("Trasfer from " .. i .. " to " .. turtleSlot)
-                    barrel.pushItems("turtle_0", i, 64, turtleSlot)
+    local modem = peripheral.wrap("bottom")
+    local channel = 1
+
+    local turtleSlot = 1
+
+    patternc = getPatternFromBarrel()
+
+    for i = 1, 27 do
+        if (i >= 4 and i < 7) or (i >= 13 and i < 16) or (i >= 22 and i < 25) then
+            if turtleSlot <= 16 then
+                if turtleSlot == 4 or turtleSlot == 8 then
                     turtleSlot = turtleSlot + 1
                 end
+                barrel.pushItems("turtle_0", i, 64, turtleSlot)
+                turtleSlot = turtleSlot + 1
             end
         end
+    end
 
-
-        -- clearBarrelToStorage()
-
-        if next(barrel.list()) then
-            bf = true
-            print("Barrel has items")
-        else
-            bf = false
-            print("Barrel is empty")
-        end 
-
-        local datac = {
-            command = "craft",
-            count = 64
-        }
-
-        modem.open(1)
-        modem.transmit(channel, channel, datac)
-        print("Command sent")
-
-
-
-
-        for i = 1, 16 do
-            barrel.pullItems("turtle_0", i, 64)
-        end
-
-        craft_items = 0
-        item_name = ""
-
-        for i = 1, 27 do
-            local item = barrel.list()[i]
-            if item then
-                -- print("Slot " .. i .. ": " .. item.name .. " x" .. item.count)
-                craft_items = craft_items + item.count
-                if item_name == "" then
-                    item_name = item.name
-                end
-            else
-                -- print("Slot " .. i .. ": empty")
-            end
-        end
-
+    if next(barrel.list()) then
+        bf = true
+        print("Barrel has items")
     else
-        print("Select another option")
+        bf = false
+        print("Barrel is empty")
+    end
+
+    local datac = {
+        command = "craft",
+        count = 64
+    }
+
+    modem.open(1)
+    modem.transmit(channel, channel, datac)
+    print("Command sent")
+
+    for i = 1, 16 do
+        barrel.pullItems("turtle_0", i, 64)
+    end
+
+    craft_items = 0
+    item_name = ""
+
+    for i = 1, 27 do
+        local item = barrel.list()[i]
+        if item then
+            craft_items = craft_items + item.count
+            if item_name == "" then
+                item_name = item.name
+            end
+        end
     end
 
 end
@@ -618,14 +606,13 @@ local function btn_craft_choose(itemName)
 end
 
 
-local function btn_craft(selectedItem, multiplier)
-    multiplier = multiplier or 1
+local function btn_craft(selectedItem, batches)
+    batches = batches or 1
     if not selectedItem or not data[selectedItem] then return false end
 
     local recipe = data[selectedItem]
-    
+
     -- 1. ПОЛНАЯ ОЧИСТКА БОЧКИ перед началом
-    -- Это гарантирует, что сетка 3х3 пуста и готова к приему ингредиентов
     clearBarrelToStorage()
 
     -- 2. ЗАГРУЗКА ИНГРЕДИЕНТОВ
@@ -635,9 +622,9 @@ local function btn_craft(selectedItem, multiplier)
         local targetSlot = slots[i]
 
         if neededItem and neededItem ~= " " then
-            local needCount = 1 * multiplier
+            local needCount = batches
             local remaining = needCount
-            
+
             for _, storage in ipairs(storages) do
                 if remaining <= 0 then break end
                 local items = getAllItemsFromStorage(storage.peripheral)
@@ -650,7 +637,7 @@ local function btn_craft(selectedItem, multiplier)
                     end
                 end
             end
-            
+
             if remaining > 0 then
                 print("Error: missing " .. neededItem)
                 return false
@@ -658,7 +645,7 @@ local function btn_craft(selectedItem, multiplier)
         end
     end
 
-    -- 3. ПЕРЕМЕЩЕНИЕ В ЧЕРЕПАХУ (по твоей логике)
+    -- 3. ПЕРЕМЕЩЕНИЕ В ЧЕРЕПАХУ
     local turtleSlot = 1
     for i = 1, 27 do
         if (i >= 4 and i < 7) or (i >= 13 and i < 16) or (i >= 22 and i < 25) then
@@ -672,7 +659,12 @@ local function btn_craft(selectedItem, multiplier)
 
     -- 4. КОМАНДА КРАФТА
     local modem = peripheral.wrap("bottom")
-    modem.transmit(1, 1, { command = "craft", count = 64 })
+    if not modem then
+        print("Error: Modem not found on bottom")
+        return false
+    end
+    modem.open(1)
+    modem.transmit(1, 1, { command = "craft", count = batches })
 
     -- 5. ЗАБИРАЕМ РЕЗУЛЬТАТ ИЗ ЧЕРЕПАХИ В БОЧКУ
     for i = 1, 16 do
