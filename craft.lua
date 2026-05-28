@@ -1,5 +1,11 @@
-local function craft()
+local function initTurtle()
+    turtle = peripheral.wrap("turtle_0")
+    if not turtle then
+        error("No turtle found on side 'turtle_0'", 0)
+    end
+end
 
+local function craft()
     print(table.concat(peripheral.getNames(), ", "))
     local modem = peripheral.wrap("left") or error("No modem attached", 0)
     modem.open(1)
@@ -11,10 +17,16 @@ local function craft()
         ))
 
         if tostring(message.command) == "craft" then
-            turtle.craft(message.count)
-            print(1)
+            if turtle then
+                turtle.craft(message.count)
+                print("Crafting completed: " .. message.count)
+            else
+                print("Error: turtle not initialized")
+            end
         end
     end
 end
 
+-- Initialize turtle before starting craft loop
+initTurtle()
 craft()

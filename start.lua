@@ -40,9 +40,9 @@ end
 
 -- Функция создания окна прокрутки
 local function createScrollWindow()
-    choiseadd_window = window.create(monitor, 19, 18, 40, 4, btn_add_choise)
+    choiseadd_window = window.create(monitor, 19, 18, 40, 4)
     choiseadd_window.setBackgroundColour(colors.gray)
-    choise_window = window.create(monitor, 2, 21, 12, 1, btn_add_active)
+    choise_window = window.create(monitor, 2, 21, 12, 1)
     choise_window.setBackgroundColour(colors.gray)
     scroll_window = window.create(monitor, 3, 4, 57, 11)
     scroll_window.setBackgroundColour(colors.gray)
@@ -174,7 +174,10 @@ end
 
 
 local function btn_clear()
-    
+    selectedItem = nil
+    displayRecipes()
+    win_count_craft.setBackgroundColour(colors.black)
+    win_count_craft.clear()
 end
 
 
@@ -198,16 +201,13 @@ local function displayRecipes()
     scroll_window.setBackgroundColour(colors.black)
     scroll_window.clear()
     
-    local winW, winH = scroll_window.getSize() -- Получаем размеры окна
-
+    local winW, winH = scroll_window.getSize()
     for i = 1, winH do
         local index = i + scrollOffset
         local itemId = itemKeys[index]
         
         if itemId then
             scroll_window.setCursorPos(1, i)
-            
-            -- ПРОВЕРКА: Если этот предмет выбран — красим в синий
             if itemId == selectedItem then
                 scroll_window.setBackgroundColour(colors.blue)
                 scroll_window.setTextColour(colors.white)
@@ -215,9 +215,7 @@ local function displayRecipes()
                 scroll_window.setBackgroundColour(colors.gray)
                 scroll_window.setTextColour(colors.white)
             end
-            
-            -- Рисуем текст и забиваем остаток строки пробелами для полной полоски
-            local label = itemId:sub(1, winW) -- Обрезаем, если ID слишком длинный
+            local label = itemId:sub(1, winW)
             scroll_window.write(label .. string.rep(" ", winW - #label))
         end
     end
@@ -492,7 +490,7 @@ end
 
 
 local function btn_addprocess()
-    
+    print("Process mode not yet implemented")
 end
 
 
