@@ -664,7 +664,8 @@ local function btn_craft(selectedItem, batches)
         return false
     end
     modem.open(1)
-    modem.transmit(1, 1, { command = "craft", count = batches })
+    local craftCount = batches * (recipe.craft or 1)
+    modem.transmit(1, 1, { command = "craft", count = craftCount })
 
     -- 5. ЗАБИРАЕМ РЕЗУЛЬТАТ ИЗ ЧЕРЕПАХИ В БОЧКУ
     for i = 1, 16 do
@@ -948,7 +949,7 @@ local function touch()
                     
                     if selectedItem and data[selectedItem] then
                         local baseCount = data[selectedItem].craft
-                        local totalToCraft = baseCount * selectedMultiplier   -- для отображения
+                        local totalToCraft = baseCount * selectedMultiplier   -- фактическое количество предметов
                         
                         print("--- ACTION ---")
                         print("Crafting: " .. selectedItem .. " x" .. totalToCraft)
@@ -959,7 +960,7 @@ local function touch()
                         win_count_craft.setBackgroundColour(colors.gray)
                         win_count_craft.write("Crafting " .. selectedItem .. " x" .. totalToCraft)
                         
-                        craftWithDependencies(selectedItem, selectedMultiplier)   -- ← передаём множитель (количество крафтов)
+                        craftWithDependencies(selectedItem, totalToCraft)   -- передаём фактическое количество предметов
                         
                         selectedItem = nil
                         displayRecipes()
