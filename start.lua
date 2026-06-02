@@ -20,7 +20,168 @@ local processSelectionActive = false
 local processCandidates = {}
 local barrel = peripheral.wrap("minecraft:barrel_0")
 local barrel_name = "minecraft:barrel_0"
+-- Новые переменные для управления интерфейсом
+local currentTab = "recipe"       -- Активная вкладка: "recipe", "add", "edit", "machines"
+local selectedMod = "ALL"         -- Выбранный мод для фильтрации
+local modKeys = {}                -- Список всех обнаруженных модов
+local modOffset = 0               -- Прокрутка вкладок модов
+local maxVisibleMods = 5          -- Сколько вкладок модов помещается на экране
 
+-- Функция для извлечения имени мода из itemId (например, "create:cogwheel" -> "create")
+local function getModName(itemId)
+    if not itemId then return "ALL" end
+    local mod = itemId:match("^([^:]+):")
+    return mod and mod:upper() or "MINECRAFT"
+end
+
+-- Переработанная функция генерации ключей с фильтрацией по моду
+local function updateItemKeys()
+    -- Собираем уникальные моды из всех рецептов
+    local mods = { ["ALL"] = true }
+    for name, _ in pairs(data) do
+        mods[getModName(name)] = true
+    end
+    
+    modKeys = {}
+    for mod, _ in pairs(mods) do
+        table.insert(modKeys, mod)
+    end
+    table.sort(modKeys) -- Сортируем моды по алфавиту (ALL всегда будет где-то тут, можно захардкодить первым)
+    
+    -- Перемещаем ALL на первое место
+    for i, mod in ipairs(modKeys) do
+        if mod == "ALL" then
+            table.remove(modKeys, i)
+            table.insert(modKeys, 1, "ALL")
+            break
+        end
+    end
+
+    -- Фильтруем предметы по выбранному моду
+    itemKeys = {}
+    for name, _ in pairs(data) do
+        if selectedMod == "ALL" or getModName(name) == selectedMod then
+            table.insert(itemKeys, name)
+        end
+    end
+    table.sort(itemKeys)
+end
+
+
+
+-- Отрисовка главных вкладок (Y: 2-3)
+local function drawTopTabs()
+    local tabs = {
+        { id = "recipe",   label = " RECIPE " },
+        { id = "add",      label = "   ADD  " },
+        { id = "edit",     label = "  EDIT  " },
+        { id = "machines", label = "MACHINES" }
+    }
+    
+    local startX = 3
+    for _, tab in ipairs(tabs) do
+        monitor.setCursorPos(startX, 2)
+        if currentTab == tab.id then
+            monitor.setBackgroundColour(colors.blue)
+            monitor.setTextColour(colors.white)
+        else
+            monitor.setBackgroundColour(colors.gray)
+            monitor.setTextColour(colors.white)
+        end
+        monitor.write(tab.label)
+        startX = startX + #tab.label + 2
+    end
+end
+
+-- Отрисовка вкладок модов (Y: 4-5)
+local function drawModTabs()
+    if currentTab ~= "recipe" then return end -- Показываем только во вкладке рецептов
+    
+    monitor.setBackgroundColour(colors.black)
+    monitor.setCursorPos(3, 4)
+    monitor.setTextColour(colors.yellow)
+    monitor.write("<Mods> ")
+    
+    local startX = 10
+    for i = 1, maxVisibleMods do
+        local idx = i + modOffset
+        local mod = modKeys[idx]
+        if mod then
+            monitor.setCursorPos(startX, 4)
+            if selectedMod == mod then
+                monitor.setBackgroundColour(colors.green)
+                monitor.setTextColour(colors.white)
+            else
+                monitor.setBackgroundColour(colors.gray)
+                monitor.setTextColour(colors.white)
+            end
+            monitor.write(" " .. mod .. " ")
+            startX = startX + #mod + 3
+        end
+    end
+end
+
+-- Обновленный рендер списка рецептов с кнопками Craft и Delete
+local function displayRecipes()
+    scroll_window.setBackgroundColour(colors.black)
+    scroll_window.clear()
+    
+    if currentTab ~= "recipe" then
+        return -- Если вкладка не recipe, окно очищается (содержимое других вкладок рисуй тут)
+    end
+    
+    local winW, winH = scroll_window.getSize()
+    for i = 1, winH do
+        local index = i + scrollOffset
+        local itemId = itemKeys[index]
+        
+        if itemId then
+            scroll_window.setCursorPos(1, i)
+            
+            -- Подсветка выбранной строки
+            if itemId == selectedItem then
+                scroll_window.setBackgroundColour(colors.blue)
+            else
+                scroll_window.setBackgroundColour(colors.gray)
+            end
+            
+            -- Выводим имя предмета (обрезаем, чтобы влезли кнопки справа)
+            local maxLabelWidth = 50
+            local label = itemId:sub(1, maxLabelWidth)
+            label = label .. string.rep(" ", maxLabelWidth - #label)
+            scroll_window.setTextColour(colors.white)
+            scroll_window.write(label)
+            
+            -- Кнопка Craft>> (Локальные координаты в окне: X от 53 до 63)
+            scroll_window.setCursorPos(53, i)
+            scroll_window.setBackgroundColour(colors.lime)
+            scroll_window.setTextColour(colors.black)
+            scroll_window.write("[ Craft>> ]")
+            
+            -- Кнопка Delete (Локальные координаты в окне: X от 66 до 75)
+            scroll_window.setCursorPos(66, i)
+            scroll_window.setBackgroundColour(colors.red)
+            scroll_window.setTextColour(colors.white)
+            scroll_window.write("[ Delete ]")
+        end
+    end
+end
+
+-- Нижняя панель навигации (Стрелочки слева на желтой панели)
+local function drawBottomPanel()
+    -- Перерисовываем желтую линию (Y: 25)
+    monitor.setBackgroundColour(colors.yellow)
+    for x = 1, w do
+        monitor.setCursorPos(x, 25)
+        monitor.write(" ")
+    end
+    
+    -- Рисуем стрелочки прокрутки элементов в левом углу
+    monitor.setCursorPos(3, 25)
+    monitor.setBackgroundColour(colors.yellow)
+    monitor.setTextColour(colors.black)
+    monitor.write("[<<]  [>>]")
+end
 
 
 -- Функция получения всех устройств (если нужно)
@@ -1285,126 +1446,118 @@ local function touch()
         local event, side, x, y = os.pullEvent()
 
         if event == "monitor_touch" and side == "right" then
-            print("The monitor on side " .. side .. " was touched at (" .. x .. ", " .. y .. ")")
-            -- os.sleep(0.05) -- Небольшая задержка для предотвращения многократных срабатываний
-            if x < btnX_add+8 and x >= btnX_add and y >= btnY_add and y < btnY_add+3 then
-                -- Если уже выбран предмет для крафта, сначала отменяем его
-                if selectedItem then
-                    selectedItem = nil
-                    displayRecipes()
-                    win_count_craft.clear()
+            print("Touch at: (" .. x .. ", " .. y .. ")")
+            
+            -- ---------------------------------------------------------
+            -- ПОД-БЛОК 1: Клик по Главным Вкладкам (Y == 2 или Y == 3)
+            -- ---------------------------------------------------------
+            if y == 2 or y == 3 then
+                if x >= 3 and x <= 14 then
+                    currentTab = "recipe"
+                elseif x >= 16 and x <= 23 then
+                    currentTab = "add"
+                    -- Тут можно сразу вызывать твой инициализатор добавления крафта
+                elseif x >= 25 and x <= 32 then
+                    currentTab = "edit"
+                elseif x >= 34 and x <= 47 then
+                    currentTab = "machines"
                 end
-                btn_add_active = true
-                btn_add()
-            end
-            if x >= 2 and x < 7 and y == 21 then
-                btn_add_active = false
-                choise_window.setBackgroundColour(colors.black)
-                choise_window.clear()
-                if not btn_add_choise then
-                    btn_addcraft()
-                end
-            end
-            if x >= 8 and x < 13 and y == 21 then
-                btn_add_active = false
-                choise_window.setBackgroundColour(colors.black)
-                choise_window.clear()
-                if not btn_add_choise then
-                    btn_addprocess()
-                end
-            end
-
-            if x >= 28 and x < 30 and y == 20 then
-                btn_yes()
-            end
-            if x >= 38 and x < 40 and y == 20 then
-                btn_no()
-            end
-            if x >= 3 and x < 5 and y == 16 then 
-                scroll_left()
-            end
-            if x >= 7 and x < 9 and y == 16 then 
-                scroll_right()
-            end
-
-            -- Внутри функции touch(), в блоке выбора предмета:
-            if x >= 3 and x < 44 and y >= 4 and y < 15 then
-                if processSelectionActive then
-                    local index = y - 3
-                    local entry = processCandidates[index]
-                    if entry then
-                        selectedProcessInterface = entry.name
-                        processSelectionActive = false
-                        choise_window.setBackgroundColour(colors.black)
-                        choise_window.clear()
-
-                        win_count_craft.setBackgroundColour(colors.black)
-                        win_count_craft.clear()
-                        win_count_craft.setCursorPos(1,1)
-                        win_count_craft.setTextColour(colors.white)
-                        win_count_craft.write("Selected: " .. entry.name:sub(1, 24))
-
-                        btn_addcraft()
-                    end
-                else
-                    local index = y + scrollOffset - 3
-                    if itemKeys[index] then
-
-                        btn_add_active = false
-                        choise_window.setBackgroundColour(colors.black)
-                        choise_window.clear()
-                        btn_add_choise = false
-
-
-                        selectedItem = itemKeys[index] -- Сохраняем выбор
-                        print("Selected item: " .. selectedItem)
-                        
-                        btn_craft_choose(selectedItem) -- Рисуем кнопки x1, x4...
-                        displayRecipes()               -- ОБНОВЛЯЕМ СПИСОК (чтобы появилась подсветка)
-                    end
-                end
-            end
-
-            if x >= winX and x < winX + 30 and y >= winY and y < winY + 4 then
-                local localX = x - winX + 1
-                local localY = y - winY + 1
-                local stepX = btnWidth + paddingX
-                local column = math.floor((localX - 1) / stepX)
-                local row = math.floor((localY - 1) / 2)
-                local index = row * maxCols + column + 1
                 
-                if index >= 1 and index <= #multipliers then
-                    local selectedMultiplier = multipliers[index]   -- множитель (количество крафтов)
-                    
-                    if selectedItem and data[selectedItem] then
-                        local baseCount = data[selectedItem].craft
-                        local totalToCraft = baseCount * selectedMultiplier   -- фактическое количество предметов
-                        
-                        print("--- ACTION ---")
-                        print("Crafting: " .. selectedItem .. " x" .. totalToCraft)
-                        
-                        win_count_craft.setBackgroundColour(colors.black)
-                        win_count_craft.clear()
-                        win_count_craft.setCursorPos(1,1)
-                        win_count_craft.setBackgroundColour(colors.gray)
-                        win_count_craft.write("Crafting " .. selectedItem .. " x" .. totalToCraft)
-                        
-                        craftWithDependencies(selectedItem, totalToCraft)   -- передаём фактическое количество предметов
-                        
-                        selectedItem = nil
-                        displayRecipes()
-                        win_count_craft.setBackgroundColour(colors.black)
-                        win_count_craft.clear()
-                    else
-                        print("Error: No item selected from list!")
+                -- Сбрасываем контекст при переключении вкладок
+                selectedItem = nil
+                scrollOffset = 0
+                win_count_craft.clear()
+                win_count_craft.setBackgroundColour(colors.black)
+                
+                -- Полная перерисовка
+                monitor.clear()
+                drawTopTabs()
+                drawModTabs()
+                drawBottomPanel()
+                displayRecipes()
+            end
+            
+            -- ---------------------------------------------------------
+            -- ПОД-БЛОК 2: Клик по вкладкам Модов (Y == 4)
+            -- ---------------------------------------------------------
+            if y == 4 and currentTab == "recipe" then
+                -- Логика переключения модов
+                local startX = 10
+                for i = 1, maxVisibleMods do
+                    local idx = i + modOffset
+                    local mod = modKeys[idx]
+                    if mod then
+                        local endX = startX + #mod + 2
+                        if x >= startX and x <= endX then
+                            selectedMod = mod
+                            scrollOffset = 0
+                            updateItemKeys()
+                            drawModTabs()
+                            displayRecipes()
+                            break
+                        end
+                        startX = endX + 1
                     end
                 end
             end
 
+            -- ---------------------------------------------------------
+            -- ПОД-БЛОК 3: Клик внутри scroll_window (Y от 7 до 22)
+            -- ---------------------------------------------------------
+            if x >= 3 and x <= 80 and y >= 7 and y <= 22 then
+                local localX = x - 3 + 1
+                local localY = y - 7 + 1
+                local index = localY + scrollOffset
+                local itemId = itemKeys[index]
+                
+                if currentTab == "recipe" and itemId then
+                    if localX >= 1 and localX <= 50 then
+                        -- Клик по названию предмета (Просто выделение)
+                        selectedItem = itemId
+                        displayRecipes()
+                    
+                    elseif localX >= 53 and localX <= 63 then
+                        -- НАЖАТА КНОПКА [ Craft>> ]
+                        selectedItem = itemId
+                        displayRecipes()
+                        
+                        -- Шаг 4 из твоего ТЗ: Открытие окна выбора количества
+                        print("Opening quantity select for: " .. itemId)
+                        btn_craft_choose(itemId) 
+                        
+                    elseif localX >= 66 and localX <= 75 then
+                        -- НАЖАТА КНОПКА [ Delete ]
+                        print("Delete requested for: " .. itemId)
+                        data[itemId] = nil
+                        saveConfig(data)
+                        updateItemKeys()
+                        displayRecipes()
+                    end
+                end
+            end
+
+            -- ---------------------------------------------------------
+            -- ПОД-БЛОК 4: Нижняя панель навигации (Стрелочки) (Y == 25)
+            -- ---------------------------------------------------------
+            if y == 25 then
+                if x >= 3 and x <= 6 then
+                    -- Стрелочка [<<]
+                    if currentTab == "recipe" then
+                        scrollOffset = math.max(0, scrollOffset - 1)
+                        displayRecipes()
+                    end
+                elseif x >= 9 and x <= 12 then
+                    -- Стрелочка [>>]
+                    if currentTab == "recipe" then
+                        scrollOffset = math.min(#itemKeys - 16, scrollOffset + 1)
+                        displayRecipes()
+                    end
+                end
+            end
 
         end
-
-
+        
+        -- Вторая сторона (Вспомогательный монитор для очистки бочки)
         if event == "monitor_touch" and side == "monitor_0" then
             if y == 3 then
                 monitor_2.setBackgroundColour(colors.black)
@@ -1418,26 +1571,31 @@ end
 
 
 local function main()
-
     local allDevices = getAllDevices()
     print("Devices:", table.concat(allDevices, ", "))
     
-    -- Инициализация
+    -- Полная инициализация
     initMonitor()
     createScrollWindow()
     loadRecipes()
+    
+    -- Формируем базу модов и список ключей
     updateItemKeys()
+    
+    -- Первая отрисовка фрейма
+    monitor.clear()
+    drawTopTabs()
+    drawModTabs()
+    drawBottomPanel()
+    
+    -- Отрисовка контента
     displayRecipes()
+    
     initTurtle()
     initStorages()
     initMonitor_2()
     
-    -- Отрисовка интерфейса
-    drawAddButton()
-    drawHorizontalLine()
-    drawVerticalLine()
-    drawTopHorizontalLine()
---    setupWindowHeader()
+    -- Запуск прослушивания экрана
     touch()
 end
 
