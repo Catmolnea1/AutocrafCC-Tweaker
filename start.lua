@@ -416,8 +416,8 @@ local function displayRecipes()
             
             -- 2. ИМЯ ПРЕДМЕТА (Левый край)
             -- Жестко задаем длину 43 символа, добиваем пробелами справа
-            local label = itemId:sub(1, 36)
-            label = label .. string.rep(" ", 41 - #label)
+            local label = itemId:sub(-40)
+            label = string.rep(" ", 41 - #label) .. label
             
             -- 3. КОЛИЧЕСТВО (Правый край перед кнопкой)
             -- Выделяем ровно 4 позиции (с 44 по 47 координату). Кнопка на 48.
