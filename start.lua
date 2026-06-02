@@ -199,13 +199,13 @@ end
 
 -- Функция создания окна прокрутки
 local function createScrollWindow()
-    choiseadd_window = window.create(monitor, 19, 18, 40, 4)
+    choiseadd_window = window.create(monitor, 3, 7, 78, 16)
     choiseadd_window.setBackgroundColour(colors.gray)
-    choise_window = window.create(monitor, 2, 21, 12, 1)
+    choise_window = window.create(monitor, 3, 7, 78, 16)
     choise_window.setBackgroundColour(colors.gray)
-    scroll_window = window.create(monitor, 3, 4, 57, 11)
+    scroll_window = window.create(monitor, 3, 7, 78, 16)
     scroll_window.setBackgroundColour(colors.gray)
-    win_count_craft = window.create(monitor, 3, 18, 30, 3)
+    win_count_craft = window.create(monitor, 3, 7, 78, 16)
     win_count_craft.setBackgroundColour(colors.gray)
 end
 
@@ -413,13 +413,13 @@ end
 
 -- Функция рисования горизонтальной линии
 local function drawHorizontalLine()
-    for x = 0, w do
-        monitor.setBackgroundColour(colors.gray)
-        monitor.setCursorPos(x, h/2+3)
-        monitor.write(" ")
-    end
-    monitor.setCursorPos(3, h/2+3)
-    monitor.write("<<  >>")
+    -- for x = 0, w do
+    --     monitor.setBackgroundColour(colors.gray)
+    --     monitor.setCursorPos(x, h/2+3)
+    --     monitor.write(" ")
+    -- end
+    -- monitor.setCursorPos(3, h/2+3)
+    -- monitor.write("<<  >>")
 
     for x = 0, w do
         monitor.setBackgroundColour(colors.yellow)
@@ -439,7 +439,7 @@ local function drawVerticalLine()
     for i = 2, h do
         monitor.setBackgroundColour(colors.yellow)
         monitor.write(" ")
-        monitor.setCursorPos(61, i)
+        monitor.setCursorPos(82, i)
     end
 end
 
@@ -1437,7 +1437,7 @@ local function main()
     drawHorizontalLine()
     drawVerticalLine()
     drawTopHorizontalLine()
-    setupWindowHeader()
+--    setupWindowHeader()
     touch()
 end
 
