@@ -394,25 +394,47 @@ local function displayRecipes()
         local itemId = itemKeys[index]
         
         if itemId then
+            -- =======================================================
+            -- 1. ЦВЕТ ФОНА (ЗЕБРА) И ЗАЛИВКА СТРОКИ
+            -- =======================================================
             scroll_window.setCursorPos(1, i)
             if itemId == selectedItem then
                 scroll_window.setBackgroundColour(colors.blue)
+            elseif i % 2 == 1 then
+                scroll_window.setBackgroundColour(colors.black) -- Нечетные строки
             else
-                scroll_window.setBackgroundColour(colors.gray)
+                scroll_window.setBackgroundColour(colors.gray)  -- Четные строки
             end
             
-            -- Имя предмета и количество за один крафт
+            -- Сначала заливаем цветом всю ширину, чтобы фон не обрывался
+            scroll_window.write(string.rep(" ", winW))
+            scroll_window.setCursorPos(1, i) -- Возвращаем курсор в начало
+            -- =======================================================
+            
             local recipe = data[itemId] or {}
             local craftCount = recipe.craft or 1
+            
+            -- 2. ИМЯ ПРЕДМЕТА (Левый край)
+            -- Жестко задаем длину 43 символа, добиваем пробелами справа
             local label = itemId:sub(1, 36)
-            label = label .. string.rep(" ", 43 - #label)
+            label = label .. string.rep(" ", 41 - #label)
+            
+            -- 3. КОЛИЧЕСТВО (Правый край перед кнопкой)
+            -- Выделяем ровно 4 позиции (с 44 по 47 координату). Кнопка на 48.
             local countText = "x" .. tostring(craftCount)
-            countText = countText .. string.rep(" ", 9 - #countText)
+            if #countText < 4 then
+                -- Добавляем пробелы СЛЕВА, чтобы текст прижался вправо
+                countText = string.rep(" ", 4 - #countText) .. countText
+            end
+            
+            -- Выводим текст
             scroll_window.setTextColour(colors.white)
             scroll_window.write(label)
+            
             scroll_window.setTextColour(colors.yellow)
             scroll_window.write(countText)
             
+            -- 4. КНОПКИ
             -- Кнопка Craft>> (Локальные X: 48-58)
             scroll_window.setCursorPos(48, i)
             scroll_window.setBackgroundColour(colors.lime)
