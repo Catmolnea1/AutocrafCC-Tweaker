@@ -590,7 +590,7 @@ end
 
 local function btn_addcraft()
     -- 1. СНАЧАЛА делаем сам крафт и считываем шаблон
-    patternc = getPatternFromInterface("turtle_0")
+    patternc = getBarrelPattern()
 
     if currentRecipeType == "processing" then
         if not selectedProcessInterface then
