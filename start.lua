@@ -589,8 +589,20 @@ function addCraft(resultName, count, pattern)
 end
 
 local function btn_addcraft()
-    -- 1. СНАЧАЛА делаем сам крафт и считываем шаблон
+    -- 1. СНАЧАЛА считываем шаблон и запоминаем стартовое количество входящих ресурсов
     patternc = getBarrelPattern()
+
+    local inputCounts = {}
+    local inv = barrel.list()
+    local slots = {4, 5, 6, 13, 14, 15, 22, 23, 24}
+    
+    -- Собираем стек каждого положенного предмета в сетке крафта
+    for _, slot in ipairs(slots) do
+        local item = inv[slot]
+        if item and item.count > 0 then
+            table.insert(inputCounts, item.count)
+        end
+    end
 
     if currentRecipeType == "processing" then
         if not selectedProcessInterface then
@@ -701,7 +713,7 @@ local function btn_addcraft()
         modem.transmit(channel, channel, datac)
         print("Command sent")
         
-        sleep(1.5) -- ВАЖНО: Даем черепахе время на крафт, прежде чем забирать предметы
+        sleep(1.5) 
 
         for i = 1, 16 do
             barrel.pullItems("turtle_0", i, 64)
@@ -720,9 +732,42 @@ local function btn_addcraft()
         end
     end
 
+    -- ======================================================================
+    --  ЛОГИКА АВТОМАТИЧЕСКОЙ НОРМАЛИЗАЦИИ КОЛИЧЕСТВА
+    -- ======================================================================
+    if craft_items > 0 and #inputCounts > 0 then
+        -- Функция для поиска НОД двух чисел
+        local function gcd(a, b)
+            while b ~= 0 do
+                a, b = b, a % b
+            end
+            return a
+        end
+
+        -- Собираем все числа в один массив: количества ингредиентов + результат крафта
+        local allNumbers = {}
+        for _, count in ipairs(inputCounts) do
+            table.insert(allNumbers, count)
+        end
+        table.insert(allNumbers, craft_items)
+
+        -- Ищем общий НОД для всей группы чисел
+        local scaleFactor = allNumbers[1]
+        for i = 2, #allNumbers do
+            scaleFactor = gcd(scaleFactor, allNumbers[i])
+        end
+
+        -- Если общий делитель больше 1, значит крафт был пропорционально увеличен
+        if scaleFactor > 1 then
+            craft_items = math.floor(craft_items / scaleFactor)
+            print("Recipe normalized! Scaled down by factor of: " .. scaleFactor)
+        end
+    end
+    -- ======================================================================
+
     -- 2. ТОЛЬКО ТЕПЕРЬ рисуем окно подтверждения с результатом
     btn_add_choise = true
-    choiseadd_window.setVisible(true) -- Убедись, что окно видно
+    choiseadd_window.setVisible(true) 
     choiseadd_window.setBackgroundColour(colors.black)
     choiseadd_window.clear()
     
@@ -730,7 +775,7 @@ local function btn_addcraft()
     choiseadd_window.setCursorPos(1,1)
     choiseadd_window.write("Would you like to save this craft?")
     choiseadd_window.setCursorPos(1,2)
-    choiseadd_window.write("Found: " .. (item_name ~= "" and item_name or "None"))
+    choiseadd_window.write("Found: " .. (item_name ~= "" and item_name or "None") .. " x" .. craft_items)
 
     choiseadd_window.setBackgroundColour(colors.lime)
     choiseadd_window.setTextColour(colors.black)
