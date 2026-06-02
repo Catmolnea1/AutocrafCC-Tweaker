@@ -13,6 +13,11 @@ local paddingX = 3
 local paddingY = 1     -- Расстояние между кнопками по вертикали
 local winX, winY = 3, 18 -- Координаты верхнего левого угла окна с кнопками количества
 local selectedItem = nil -- Выбранный предмет для крафта
+local currentRecipeType = "crafting"
+local selectedProcessInterface = nil
+local selectedProcessOutputSlots = {}
+local processSelectionActive = false
+local processCandidates = {}
 local barrel = peripheral.wrap("minecraft:barrel_0")
 local barrel_name = "minecraft:barrel_0"
 
@@ -22,6 +27,160 @@ local barrel_name = "minecraft:barrel_0"
 local function getAllDevices()
     local allDevices = peripheral.getNames()
     return allDevices
+end
+
+local function isProcessInterface(name)
+    local pType = peripheral.getType(name) or ""
+    if name == barrel_name then
+        return false
+    end
+    if pType == "turtle" then
+        return false
+    end
+    local device = peripheral.wrap(name)
+    return device and device.pushItems and device.pullItems
+end
+
+local function getProcessInterfaces()
+    local interfaces = {}
+    for _, name in ipairs(getAllDevices()) do
+        if isProcessInterface(name) then
+            local pType = peripheral.getType(name) or "unknown"
+            table.insert(interfaces, { name = name, type = pType })
+        end
+    end
+    return interfaces
+end
+
+local function getInterfaceContents(name)
+    local device = peripheral.wrap(name)
+    if not device or not device.list then
+        return {}
+    end
+    local items = {}
+    local success, result = pcall(device.list)
+    if success and result then
+        for slot, item in pairs(result) do
+            items[slot] = item
+        end
+    end
+    return items
+end
+
+local function getInterfaceItemCount(name, itemName)
+    local total = 0
+    for _, item in pairs(getInterfaceContents(name)) do
+        if item.name == itemName then
+            total = total + item.count
+        end
+    end
+    return total
+end
+
+local function drawProcessSelection()
+    processSelectionActive = true
+    win_count_craft.setBackgroundColour(colors.black)
+    win_count_craft.clear()
+    win_count_craft.setCursorPos(1,1)
+    win_count_craft.setTextColour(colors.white)
+    win_count_craft.write("Select process interface")
+
+    scroll_window.setBackgroundColour(colors.black)
+    scroll_window.clear()
+    scroll_window.setTextColour(colors.white)
+    for i, entry in ipairs(processCandidates) do
+        if i > 11 then break end
+        scroll_window.setCursorPos(1, i)
+        local label = i .. ". " .. entry.name .. " [" .. entry.type .. "]"
+        scroll_window.write(label:sub(1, 57))
+    end
+end
+
+local function getPatternFromInterface(name)
+    local device = peripheral.wrap(name)
+    if device and device.list then
+        local inv = device.list()
+        local pattern = {}
+        for slot = 1, 9 do
+            local item = inv[slot]
+            if item then
+                pattern[slot] = item.name
+            else
+                pattern[slot] = " "
+            end
+        end
+        return pattern
+    end
+    return {}
+end
+
+local function detectOutputSlots(name, before, outputName)
+    local after = getInterfaceContents(name)
+    local outputSlots = {}
+    for slot, item in pairs(after) do
+        if item and item.name == outputName then
+            if not before[slot] or before[slot].name ~= outputName or item.count > before[slot].count then
+                table.insert(outputSlots, slot)
+            end
+        end
+    end
+    return outputSlots
+end
+
+local function getBarrelPattern()
+    local inv = barrel.list()
+    local pattern = {}
+    local slots = {4, 5, 6, 13, 14, 15, 22, 23, 24}
+    for i = 1, 9 do
+        local item = inv[slots[i]]
+        if item then
+            pattern[i] = item.name
+        else
+            pattern[i] = " "
+        end
+    end
+    return pattern
+end
+
+local function pushBarrelPatternToInterface(interfaceName)
+    local sourceSlots = {4, 5, 6, 13, 14, 15, 22, 23, 24}
+    local totalMoved = 0
+    for _, slot in ipairs(sourceSlots) do
+        local item = barrel.getItemDetail(slot)
+        if item and item.count > 0 then
+            local moved = barrel.pushItems(interfaceName, slot, item.count)
+            totalMoved = totalMoved + moved
+        end
+    end
+    return totalMoved
+end
+
+local function waitForProcessOutput(interfaceName, outputName, expectedCount, timeout)
+    local device = peripheral.wrap(interfaceName)
+    if not device then
+        return false
+    end
+    local startTime = os.clock()
+    local lastCount = getInterfaceItemCount(interfaceName, outputName)
+    local stableTicks = 0
+    while os.clock() - startTime < timeout do
+        os.sleep(0.5)
+        local currentCount = getInterfaceItemCount(interfaceName, outputName)
+        local meetsExpected = true
+        if expectedCount then
+            meetsExpected = currentCount >= expectedCount
+        end
+        if meetsExpected and currentCount == lastCount then
+            stableTicks = stableTicks + 1
+        else
+            stableTicks = 0
+        end
+        lastCount = currentCount
+        if stableTicks >= 2 and currentCount > 0 then
+            return true
+        end
+    end
+    return false
 end
 
 -- Функция инициализации монитора
@@ -309,8 +468,13 @@ local function btn_add()
         return
     end
 
-    -- 1. СБРОС: Убираем выделение предмета
+    -- 1. СБРОС: Убираем выделение предмета и режимы
     selectedItem = nil
+    currentRecipeType = "crafting"
+    selectedProcessInterface = nil
+    selectedProcessOutputSlots = {}
+    processSelectionActive = false
+    processCandidates = {}
     displayRecipes() -- список снова станет просто серым
 
     -- 2. ОЧИСТКА: Убираем кнопки x1, x4... если они были
@@ -342,6 +506,16 @@ function saveConfig(data)
         jsonString = jsonString .. '\n    "type": "' .. recipe.type .. '",'
         jsonString = jsonString .. '\n    "craft": ' .. recipe.craft .. ','
         jsonString = jsonString .. '\n    "machine": "' .. recipe.machine .. '",'
+        if recipe.outputSlots and #recipe.outputSlots > 0 then
+            jsonString = jsonString .. '\n    "outputSlots": ['
+            for i = 1, #recipe.outputSlots do
+                jsonString = jsonString .. '\n      ' .. recipe.outputSlots[i]
+                if i < #recipe.outputSlots then
+                    jsonString = jsonString .. ","
+                end
+            end
+            jsonString = jsonString .. '\n    ],'
+        end
         jsonString = jsonString .. '\n    "pattern": ['
         
         for i = 1, 9 do
@@ -391,11 +565,18 @@ function addCraft(resultName, count, pattern)
         print("Recipe for " .. resultName .. " already exists!")
         return
     end
-    -- Создаем новую запись в таблице
+
+    local recipeType = currentRecipeType or "crafting"
+    local recipeMachine = "crafting_table"
+    if recipeType == "processing" and selectedProcessInterface then
+        recipeMachine = selectedProcessInterface
+    end
+
     data[resultName] = {
-        type = "crafting",
+        type = recipeType,
         craft = count or 1,
-        machine = "crafting_table",
+        machine = recipeMachine,
+        outputSlots = selectedProcessOutputSlots,
         pattern = pattern
     }
     
@@ -418,70 +599,133 @@ local function btn_addcraft()
     choiseadd_window.write("NO")
 
     if btn_add_choise then
-        local modem = peripheral.wrap("bottom")
-        local channel = 1
-
-        local turtleSlot = 1  -- Начинаем с 1-го слота черепашки
-        
         patternc = getPatternFromBarrel()
-        
-        for i = 1, 27 do
-            -- Проверяем нужные слоты в бочке
-            if (i >= 4 and i < 7) or (i >= 13 and i < 16) or (i >= 22 and i < 25) then
-                if turtleSlot <= 16 then  -- Защита от выхода за пределы
-                    if turtleSlot == 4 or turtleSlot == 8 then
+
+        if currentRecipeType == "processing" then
+            if not selectedProcessInterface then
+                print("No process interface selected")
+                bf = false
+                return
+            end
+
+            local before = getInterfaceContents(selectedProcessInterface)
+            local transferred = pushBarrelPatternToInterface(selectedProcessInterface)
+            print("Transferred " .. transferred .. " items to " .. selectedProcessInterface)
+
+            if transferred == 0 then
+                print("Nothing moved to process interface")
+                bf = false
+                return
+            end
+
+            -- Ждем, пока процесс не даст результат
+            sleep(1)
+            local after = getInterfaceContents(selectedProcessInterface)
+            local resultCandidate = nil
+            for slot, item in pairs(after) do
+                if item and item.name then
+                    local beforeCount = (before[slot] and before[slot].count) or 0
+                    if item.count > beforeCount then
+                        resultCandidate = item.name
+                        break
+                    end
+                end
+            end
+            if not resultCandidate then
+                for slot, item in pairs(after) do
+                    if item and item.name and not before[slot] then
+                        resultCandidate = item.name
+                        break
+                    end
+                end
+            end
+
+            if not resultCandidate then
+                print("Cannot detect process output")
+                bf = false
+                return
+            end
+
+            if not waitForProcessOutput(selectedProcessInterface, resultCandidate, nil, 10) then
+                print("Process output not stable")
+            end
+
+            selectedProcessOutputSlots = detectOutputSlots(selectedProcessInterface, before, resultCandidate)
+            selectedProcessOutputSlots = selectedProcessOutputSlots or {}
+
+            local device = peripheral.wrap(selectedProcessInterface)
+            craft_items = 0
+            item_name = ""
+            if device then
+                for _, slot in ipairs(selectedProcessOutputSlots) do
+                    local item = device.getItemDetail(slot)
+                    if item then
+                        device.pushItems(barrel_name, slot, item.count)
+                        craft_items = craft_items + item.count
+                        if item_name == "" then
+                            item_name = item.name
+                        end
+                    end
+                end
+            end
+
+            if item_name ~= "" then
+                bf = true
+                print("Process output detected: " .. item_name .. " x" .. craft_items)
+            else
+                bf = false
+                print("No process output moved to barrel")
+            end
+        else
+            local modem = peripheral.wrap("bottom")
+            local channel = 1
+            local turtleSlot = 1  -- Начинаем с 1-го слота черепашки
+            
+            for i = 1, 27 do
+                if (i >= 4 and i < 7) or (i >= 13 and i < 16) or (i >= 22 and i < 25) then
+                    if turtleSlot <= 16 then
+                        if turtleSlot == 4 or turtleSlot == 8 then
+                            turtleSlot = turtleSlot + 1
+                        end
+                        barrel.pushItems("turtle_0", i, 64, turtleSlot)
                         turtleSlot = turtleSlot + 1
                     end
-                    -- print("Trasfer from " .. i .. " to " .. turtleSlot)
-                    barrel.pushItems("turtle_0", i, 64, turtleSlot)
-                    turtleSlot = turtleSlot + 1
                 end
             end
-        end
 
-
-        -- clearBarrelToStorage()
-
-        if next(barrel.list()) then
-            bf = true
-            print("Barrel has items")
-        else
-            bf = false
-            print("Barrel is empty")
-        end 
-
-        local datac = {
-            command = "craft",
-            count = 64
-        }
-
-        modem.open(1)
-        modem.transmit(channel, channel, datac)
-        print("Command sent")
-
-
-
-
-        for i = 1, 16 do
-            barrel.pullItems("turtle_0", i, 64)
-        end
-
-        craft_items = 0
-        item_name = ""
-
-        for i = 1, 27 do
-            local item = barrel.list()[i]
-            if item then
-                -- print("Slot " .. i .. ": " .. item.name .. " x" .. item.count)
-                craft_items = craft_items + item.count
-                if item_name == "" then
-                    item_name = item.name
-                end
+            if next(barrel.list()) then
+                bf = true
+                print("Barrel has items")
             else
-                -- print("Slot " .. i .. ": empty")
+                bf = false
+                print("Barrel is empty")
+            end 
+
+            local datac = {
+                command = "craft",
+                count = 64
+            }
+
+            modem.open(1)
+            modem.transmit(channel, channel, datac)
+            print("Command sent")
+
+            for i = 1, 16 do
+                barrel.pullItems("turtle_0", i, 64)
+            end
+
+            craft_items = 0
+            item_name = ""
+            for i = 1, 27 do
+                local item = barrel.list()[i]
+                if item then
+                    craft_items = craft_items + item.count
+                    if item_name == "" then
+                        item_name = item.name
+                    end
+                end
             end
         end
-
     else
         print("Select another option")
     end
@@ -490,7 +734,21 @@ end
 
 
 local function btn_addprocess()
-    print("Process mode not yet implemented")
+    currentRecipeType = "processing"
+    selectedProcessInterface = nil
+    selectedProcessOutputSlots = {}
+    processCandidates = getProcessInterfaces()
+
+    if #processCandidates == 0 then
+        win_count_craft.setBackgroundColour(colors.black)
+        win_count_craft.clear()
+        win_count_craft.setCursorPos(1,1)
+        win_count_craft.setTextColour(colors.red)
+        win_count_craft.write("No process interfaces found")
+        return
+    end
+
+    drawProcessSelection()
 end
 
 
@@ -507,7 +765,7 @@ end
 
 local function btn_yes()
     -- saveRecipe()
-    if not bf then
+    if bf then
         addCraft(item_name, craft_items, patternc)
 
         btn_add_choise = false
@@ -618,6 +876,129 @@ local function btn_craft_choose(itemName)
 end
 
 
+local function pushIngredientsToProcessInterface(recipe, batches)
+    local interfaceName = recipe.machine
+    local device = peripheral.wrap(interfaceName)
+    if not device then
+        print("Error: process interface not found: " .. tostring(interfaceName))
+        return false
+    end
+
+    for i = 1, 9 do
+        local neededItem = recipe.pattern[i]
+        if neededItem and neededItem ~= " " then
+            local remaining = batches
+            for _, storage in ipairs(storages) do
+                if remaining <= 0 then break end
+                local items = getAllItemsFromStorage(storage.peripheral)
+                for slot, item in pairs(items) do
+                    if item.name == neededItem and item.count > 0 then
+                        local take = math.min(remaining, item.count)
+                        local moved = storage.peripheral.pushItems(interfaceName, slot, take)
+                        remaining = remaining - moved
+                        if remaining <= 0 then break end
+                    end
+                end
+            end
+            if remaining > 0 then
+                print("Error: missing " .. neededItem)
+                return false
+            end
+        end
+    end
+    return true
+end
+
+local function retrieveProcessOutputs(recipe, before)
+    local interfaceName = recipe.machine
+    local device = peripheral.wrap(interfaceName)
+    if not device then
+        print("Error: process interface not found: " .. tostring(interfaceName))
+        return false, nil, 0
+    end
+
+    local after = getInterfaceContents(interfaceName)
+    local resultSlots = {}
+    local resultName = nil
+
+    if recipe.outputSlots and #recipe.outputSlots > 0 then
+        for _, slot in ipairs(recipe.outputSlots) do
+            table.insert(resultSlots, slot)
+        end
+    else
+        for slot, item in pairs(after) do
+            local beforeCount = (before[slot] and before[slot].count) or 0
+            if item and item.count > beforeCount then
+                table.insert(resultSlots, slot)
+            end
+        end
+    end
+
+    local totalCount = 0
+    for _, slot in ipairs(resultSlots) do
+        local item = device.getItemDetail(slot)
+        if item then
+            local moved = device.pushItems(barrel_name, slot, item.count)
+            if moved > 0 then
+                totalCount = totalCount + moved
+                resultName = resultName or item.name
+            end
+        end
+    end
+
+    return totalCount > 0, resultName, totalCount
+end
+
+local function waitForProcessCompletion(interfaceName, before, outputSlots, timeout)
+    local startTime = os.clock()
+    local stableTicks = 0
+    local lastCounts = {}
+
+    while os.clock() - startTime < timeout do
+        os.sleep(0.5)
+        local current = getInterfaceContents(interfaceName)
+        local allStable = true
+
+        if outputSlots and #outputSlots > 0 then
+            for _, slot in ipairs(outputSlots) do
+                local beforeCount = (before[slot] and before[slot].count) or 0
+                local currentCount = (current[slot] and current[slot].count) or 0
+                if currentCount <= beforeCount then
+                    allStable = false
+                    break
+                end
+                if lastCounts[slot] and lastCounts[slot] ~= currentCount then
+                    allStable = false
+                end
+                lastCounts[slot] = currentCount
+            end
+        else
+            local hasChange = false
+            for slot, item in pairs(current) do
+                local beforeItem = before[slot]
+                if not beforeItem or item.name ~= beforeItem.name or item.count ~= beforeItem.count then
+                    hasChange = true
+                    break
+                end
+            end
+            if not hasChange then
+                allStable = false
+            end
+        end
+
+        if allStable then
+            stableTicks = stableTicks + 1
+        else
+            stableTicks = 0
+        end
+
+        if stableTicks >= 2 then
+            return true
+        end
+    end
+    return false
+end
+
 local function btn_craft(selectedItem, batches)
     batches = batches or 1
     if not selectedItem or not data[selectedItem] then return false end
@@ -626,6 +1007,27 @@ local function btn_craft(selectedItem, batches)
 
     -- 1. ПОЛНАЯ ОЧИСТКА БОЧКИ перед началом
     clearBarrelToStorage()
+
+    if recipe.type == "processing" and recipe.machine and recipe.machine ~= "crafting_table" then
+        local before = getInterfaceContents(recipe.machine)
+        if not pushIngredientsToProcessInterface(recipe, batches) then
+            return false
+        end
+
+        local waitSlots = recipe.outputSlots or {}
+        if not waitForProcessCompletion(recipe.machine, before, waitSlots, 15) then
+            print("Process did not stabilize in time")
+        end
+
+        local ok, itemName, totalMoved = retrieveProcessOutputs(recipe, before)
+        if not ok then
+            print("Failed to collect process outputs")
+            return false
+        end
+
+        print("Processed " .. tostring(totalMoved) .. " x " .. tostring(itemName))
+        return true
+    end
 
     -- 2. ЗАГРУЗКА ИНГРЕДИЕНТОВ
     local slots = {4, 5, 6, 13, 14, 15, 22, 23, 24}
@@ -683,10 +1085,6 @@ local function btn_craft(selectedItem, batches)
     for i = 1, 16 do
         barrel.pullItems("turtle_0", i, 64)
     end
-
-    -- 6. ОТПРАВЛЯЕМ РЕЗУЛЬТАТ В ХРАНИЛИЩЕ
-    -- Теперь предмет доступен для следующего шага рекурсии через findItemInStorages
-    --clearBarrelToStorage()
 
     return true
 end
@@ -931,20 +1329,39 @@ local function touch()
 
             -- Внутри функции touch(), в блоке выбора предмета:
             if x >= 3 and x < 44 and y >= 4 and y < 15 then
-                local index = y + scrollOffset - 3
-                if itemKeys[index] then
+                if processSelectionActive then
+                    local index = y - 3
+                    local entry = processCandidates[index]
+                    if entry then
+                        selectedProcessInterface = entry.name
+                        processSelectionActive = false
+                        choise_window.setBackgroundColour(colors.black)
+                        choise_window.clear()
 
-                    btn_add_active = false
-                    choise_window.setBackgroundColour(colors.black)
-                    choise_window.clear()
-                    btn_add_choise = false
+                        win_count_craft.setBackgroundColour(colors.black)
+                        win_count_craft.clear()
+                        win_count_craft.setCursorPos(1,1)
+                        win_count_craft.setTextColour(colors.white)
+                        win_count_craft.write("Selected: " .. entry.name:sub(1, 24))
+
+                        btn_addcraft()
+                    end
+                else
+                    local index = y + scrollOffset - 3
+                    if itemKeys[index] then
+
+                        btn_add_active = false
+                        choise_window.setBackgroundColour(colors.black)
+                        choise_window.clear()
+                        btn_add_choise = false
 
 
-                    selectedItem = itemKeys[index] -- Сохраняем выбор
-                    print("Selected item: " .. selectedItem)
-                    
-                    btn_craft_choose(selectedItem) -- Рисуем кнопки x1, x4...
-                    displayRecipes()               -- ОБНОВЛЯЕМ СПИСОК (чтобы появилась подсветка)
+                        selectedItem = itemKeys[index] -- Сохраняем выбор
+                        print("Selected item: " .. selectedItem)
+                        
+                        btn_craft_choose(selectedItem) -- Рисуем кнопки x1, x4...
+                        displayRecipes()               -- ОБНОВЛЯЕМ СПИСОК (чтобы появилась подсветка)
+                    end
                 end
             end
 
