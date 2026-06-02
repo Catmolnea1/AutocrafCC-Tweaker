@@ -26,6 +26,7 @@ local paddingX = 3
 local paddingY = 1     
 local winX, winY = 3, 6 
 local selectedItem = nil 
+local deleteConfirmItem = nil
 local currentRecipeType = "crafting"
 local selectedProcessInterface = nil
 local selectedProcessOutputSlots = {}
@@ -445,7 +446,11 @@ local function displayRecipes()
             scroll_window.setCursorPos(61, i)
             scroll_window.setBackgroundColour(colors.red)
             scroll_window.setTextColour(colors.white)
-            scroll_window.write("[ Delete ]")
+            if deleteConfirmItem == itemId then
+                scroll_window.write("[ Delete? ]")
+            else
+                scroll_window.write("[ Delete ]")
+            end
         end
     end
 end
@@ -915,6 +920,17 @@ local function buildCraftPlan(targetItem, desiredCount)
     return craftCount
 end
 
+
+local function delete_sure()
+    delete_sure = true
+    scroll_window.setCursorPos(61, i)
+    scroll_window.setBackgroundColour(colors.red)
+    scroll_window.setTextColour(colors.white)
+    scroll_window.write("[ Delete? ]")
+end
+
+
+
 local function executeCraftsPlan(plan, targetItem)
     if not plan or not next(plan) then return true end
     local depth = {}
@@ -1059,18 +1075,26 @@ local function touch()
                         if itemId then
                             if localX >= 1 and localX <= 45 then
                                 selectedItem = itemId
+                                deleteConfirmItem = nil
                                 displayRecipes()
                             elseif localX >= 48 and localX <= 58 then
                                 -- Кнопка [ Craft>> ]
                                 selectedItem = itemId
+                                deleteConfirmItem = nil
                                 btn_craft_choose(itemId)
                             elseif localX >= 61 and localX <= 72 then
                                 -- Кнопка [ Delete ]
-                                data[itemId] = nil
-                                saveConfig(data)
-                                updateModList()
-                                updateItemKeys()
-                                displayRecipes()
+                                if deleteConfirmItem == itemId then
+                                    data[itemId] = nil
+                                    saveConfig(data)
+                                    updateModList()
+                                    updateItemKeys()
+                                    deleteConfirmItem = nil
+                                    displayRecipes()
+                                else
+                                    deleteConfirmItem = itemId
+                                    displayRecipes()
+                                end
                             end
                         end
                     end
