@@ -610,7 +610,7 @@ local function btn_addcraft()
     choiseadd_window.write("[ NO ]")
 
     if btn_add_choise then
-        patternc = getPatternFromBarrel()
+        patternc = getPatternFromInterface("turtle_0")
         if currentRecipeType == "processing" then
             if not selectedProcessInterface then return end
             local before = getInterfaceContents(selectedProcessInterface)
