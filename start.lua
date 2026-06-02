@@ -589,86 +589,158 @@ function addCraft(resultName, count, pattern)
 end
 
 local function btn_addcraft()
-    btn_add_choise = true
-    choise_window.setVisible(false)
-    choiseadd_window.setVisible(true)
-    choiseadd_window.setBackgroundColour(colors.black)
-    choiseadd_window.clear()
-    
-    choiseadd_window.setCursorPos(2, 2)
-    choiseadd_window.setTextColour(colors.white)
-    choiseadd_window.write("Would you like to save this craft?")
-    
-    choiseadd_window.setCursorPos(5, 5)
-    choiseadd_window.setBackgroundColour(colors.lime)
-    choiseadd_window.setTextColour(colors.black)
-    choiseadd_window.write("[ YES ]")
-    
-    choiseadd_window.setCursorPos(20, 5)
-    choiseadd_window.setBackgroundColour(colors.red)
-    choiseadd_window.setTextColour(colors.white)
-    choiseadd_window.write("[ NO ]")
+    -- 1. СНАЧАЛА делаем сам крафт и считываем шаблон
+    patternc = getPatternFromInterface("turtle_0")
 
-    if btn_add_choise then
-        patternc = getPatternFromInterface("turtle_0")
-        if currentRecipeType == "processing" then
-            if not selectedProcessInterface then return end
-            local before = getInterfaceContents(selectedProcessInterface)
-            local transferred = pushBarrelPatternToInterface(selectedProcessInterface)
-            if transferred == 0 then bf = false return end
-            sleep(1)
-            local after = getInterfaceContents(selectedProcessInterface)
-            local resultCandidate = nil
-            for slot, item in pairs(after) do
-                if item and item.name then
-                    local beforeCount = (before[slot] and before[slot].count) or 0
-                    if item.count > beforeCount then resultCandidate = item.name break end
+    if currentRecipeType == "processing" then
+        if not selectedProcessInterface then
+            print("No process interface selected")
+            bf = false
+            return
+        end
+
+        local before = getInterfaceContents(selectedProcessInterface)
+        local transferred = pushBarrelPatternToInterface(selectedProcessInterface)
+        print("Transferred " .. transferred .. " items to " .. selectedProcessInterface)
+
+        if transferred == 0 then
+            print("Nothing moved to process interface")
+            bf = false
+            return
+        end
+
+        sleep(1)
+        local after = getInterfaceContents(selectedProcessInterface)
+        local resultCandidate = nil
+        for slot, item in pairs(after) do
+            if item and item.name then
+                local beforeCount = (before[slot] and before[slot].count) or 0
+                if item.count > beforeCount then
+                    resultCandidate = item.name
+                    break
                 end
             end
-            if not resultCandidate then bf = false return end
-            waitForProcessOutput(selectedProcessInterface, resultCandidate, nil, 10)
-            selectedProcessOutputSlots = detectOutputSlots(selectedProcessInterface, before, resultCandidate) or {}
-            local device = peripheral.wrap(selectedProcessInterface)
-            craft_items = 0
-            item_name = ""
-            if device then
-                for _, slot in ipairs(selectedProcessOutputSlots) do
-                    local item = device.getItemDetail(slot)
-                    if item then
-                        device.pushItems(barrel_name, slot, item.count)
-                        craft_items = craft_items + item.count
-                        if item_name == "" then item_name = item.name end
+        end
+        if not resultCandidate then
+            for slot, item in pairs(after) do
+                if item and item.name and not before[slot] then
+                    resultCandidate = item.name
+                    break
+                end
+            end
+        end
+
+        if not resultCandidate then
+            print("Cannot detect process output")
+            bf = false
+            return
+        end
+
+        if not waitForProcessOutput(selectedProcessInterface, resultCandidate, nil, 10) then
+            print("Process output not stable")
+        end
+
+        selectedProcessOutputSlots = detectOutputSlots(selectedProcessInterface, before, resultCandidate)
+        selectedProcessOutputSlots = selectedProcessOutputSlots or {}
+
+        local device = peripheral.wrap(selectedProcessInterface)
+        craft_items = 0
+        item_name = ""
+        if device then
+            for _, slot in ipairs(selectedProcessOutputSlots) do
+                local item = device.getItemDetail(slot)
+                if item then
+                    device.pushItems(barrel_name, slot, item.count)
+                    craft_items = craft_items + item.count
+                    if item_name == "" then
+                        item_name = item.name
                     end
                 end
             end
-            bf = (item_name ~= "")
+        end
+
+        if item_name ~= "" then
+            bf = true
+            print("Process output detected: " .. item_name .. " x" .. craft_items)
         else
-            local modem = peripheral.wrap("bottom")
-            local turtleSlot = 1
-            for i = 1, 27 do
-                if (i >= 4 and i < 7) or (i >= 13 and i < 16) or (i >= 22 and i < 25) then
-                    if turtleSlot <= 16 then
-                        if turtleSlot == 4 or turtleSlot == 8 then turtleSlot = turtleSlot + 1 end
-                        barrel.pushItems("turtle_0", i, 64, turtleSlot)
+            bf = false
+            print("No process output moved to barrel")
+        end
+    else
+        -- Крафт через черепаху
+        local modem = peripheral.wrap("bottom")
+        local channel = 1
+        local turtleSlot = 1 
+        
+        for i = 1, 27 do
+            if (i >= 4 and i < 7) or (i >= 13 and i < 16) or (i >= 22 and i < 25) then
+                if turtleSlot <= 16 then
+                    if turtleSlot == 4 or turtleSlot == 8 then
                         turtleSlot = turtleSlot + 1
                     end
+                    barrel.pushItems("turtle_0", i, 64, turtleSlot)
+                    turtleSlot = turtleSlot + 1
                 end
             end
-            bf = not not next(barrel.list())
-            modem.open(1)
-            modem.transmit(1, 1, { command = "craft", count = 64 })
-            for i = 1, 16 do barrel.pullItems("turtle_0", i, 64) end
-            craft_items = 0
-            item_name = ""
-            for i = 1, 27 do
-                local item = barrel.list()[i]
-                if item then
-                    craft_items = craft_items + item.count
-                    if item_name == "" then item_name = item.name end
+        end
+
+        if next(barrel.list()) then
+            bf = true
+            print("Barrel has items")
+        else
+            bf = false
+            print("Barrel is empty")
+        end 
+
+        local datac = {
+            command = "craft",
+            count = 64
+        }
+
+        modem.open(1)
+        modem.transmit(channel, channel, datac)
+        print("Command sent")
+        
+        sleep(1.5) -- ВАЖНО: Даем черепахе время на крафт, прежде чем забирать предметы
+
+        for i = 1, 16 do
+            barrel.pullItems("turtle_0", i, 64)
+        end
+
+        craft_items = 0
+        item_name = ""
+        for i = 1, 27 do
+            local item = barrel.list()[i]
+            if item then
+                craft_items = craft_items + item.count
+                if item_name == "" then
+                    item_name = item.name
                 end
             end
         end
     end
+
+    -- 2. ТОЛЬКО ТЕПЕРЬ рисуем окно подтверждения с результатом
+    btn_add_choise = true
+    choiseadd_window.setVisible(true) -- Убедись, что окно видно
+    choiseadd_window.setBackgroundColour(colors.black)
+    choiseadd_window.clear()
+    
+    choiseadd_window.setTextColour(colors.white)
+    choiseadd_window.setCursorPos(1,1)
+    choiseadd_window.write("Would you like to save this craft?")
+    choiseadd_window.setCursorPos(1,2)
+    choiseadd_window.write("Found: " .. (item_name ~= "" and item_name or "None"))
+
+    choiseadd_window.setBackgroundColour(colors.lime)
+    choiseadd_window.setTextColour(colors.black)
+    choiseadd_window.setCursorPos(10,4)
+    choiseadd_window.write(" YES ")
+    
+    choiseadd_window.setBackgroundColour(colors.red)
+    choiseadd_window.setTextColour(colors.white)
+    choiseadd_window.setCursorPos(20,4)
+    choiseadd_window.write(" NO ")
 end
 
 local function btn_addprocess()
@@ -942,17 +1014,20 @@ local function touch()
                             end
                         end
                     elseif btn_add_choise then
-                        if localY == 5 then
-                            if localX >= 5 and localX <= 12 then
-                                -- Клик по YES
-                                if bf then
+                        -- Проверяем 3-ю строку, где нарисованы YES и NO
+                        if localY == 4 then
+                            -- Клик по YES (координата X: 10)
+                            if localX >= 10 and localX <= 14 then
+                                if item_name and item_name ~= "" then
                                     addCraft(item_name, craft_items, patternc)
+                                else
+                                    print("Error: item_name is empty")
                                 end
                                 btn_add_choise = false
                                 currentTab = "recipe"
                                 redrawUI()
-                            elseif localX >= 20 and localX <= 26 then
-                                -- Клик по NO
+                            -- Клик по NO (координата X: 20)
+                            elseif localX >= 20 and localX <= 24 then
                                 btn_add_choise = false
                                 currentTab = "recipe"
                                 redrawUI()
