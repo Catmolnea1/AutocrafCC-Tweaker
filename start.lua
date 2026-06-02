@@ -401,11 +401,17 @@ local function displayRecipes()
                 scroll_window.setBackgroundColour(colors.gray)
             end
             
-            -- Имя предмета (обрезано для кнопок)
-            local label = itemId:sub(1, 45)
-            label = label .. string.rep(" ", 45 - #label)
+            -- Имя предмета и количество за один крафт
+            local recipe = data[itemId] or {}
+            local craftCount = recipe.craft or 1
+            local label = itemId:sub(1, 36)
+            label = label .. string.rep(" ", 43 - #label)
+            local countText = "x" .. tostring(craftCount)
+            countText = countText .. string.rep(" ", 9 - #countText)
             scroll_window.setTextColour(colors.white)
             scroll_window.write(label)
+            scroll_window.setTextColour(colors.yellow)
+            scroll_window.write(countText)
             
             -- Кнопка Craft>> (Локальные X: 48-58)
             scroll_window.setCursorPos(48, i)
