@@ -105,9 +105,7 @@ local function detectOutputSlots(name, before, outputName)
     local outputSlots = {}
     for slot, item in pairs(after) do
         if item and item.name == outputName then
-            if not before[slot] or before[slot].name ~= outputName or item.count > before[slot].count then
-                table.insert(outputSlots, slot)
-            end
+            table.insert(outputSlots, slot)
         end
     end
     return outputSlots
@@ -194,6 +192,20 @@ local function initStorages()
             })
         end
     end
+end
+
+local function getAllItemsFromBarrel()
+    local items = {}
+    if not barrel or not barrel.list then return items end
+    local success, result = pcall(barrel.list)
+    if success and result then
+        for _, item in pairs(result) do
+            if item and item.name then
+                items[item.name] = (items[item.name] or 0) + item.count
+            end
+        end
+    end
+    return items
 end
 
 local function getAllItemsFromStorage(storagePeripheral)
@@ -654,11 +666,18 @@ local function btn_addcraft()
             return
         end
 
-        sleep(1)
+        local inputNames = {}
+        for _, name in ipairs(patternc) do
+            if name and name ~= " " then
+                inputNames[name] = true
+            end
+        end
+
+        -- detect output item and wait for stable production
         local after = getInterfaceContents(selectedProcessInterface)
         local resultCandidate = nil
         for slot, item in pairs(after) do
-            if item and item.name then
+            if item and item.name and not inputNames[item.name] then
                 local beforeCount = (before[slot] and before[slot].count) or 0
                 if item.count > beforeCount then
                     resultCandidate = item.name
@@ -668,7 +687,7 @@ local function btn_addcraft()
         end
         if not resultCandidate then
             for slot, item in pairs(after) do
-                if item and item.name and not before[slot] then
+                if item and item.name and not before[slot] and not inputNames[item.name] then
                     resultCandidate = item.name
                     break
                 end
@@ -681,7 +700,7 @@ local function btn_addcraft()
             return
         end
 
-        if not waitForProcessOutput(selectedProcessInterface, resultCandidate, nil, 10) then
+        if not waitForProcessOutput(selectedProcessInterface, resultCandidate, nil, 20) then
             print("Process output not stable")
         end
 
@@ -690,21 +709,24 @@ local function btn_addcraft()
 
         local device = peripheral.wrap(selectedProcessInterface)
         craft_items = 0
-        item_name = ""
+        item_name = resultCandidate
         if device then
             for _, slot in ipairs(selectedProcessOutputSlots) do
                 local item = device.getItemDetail(slot)
-                if item then
-                    device.pushItems(barrel_name, slot, item.count)
-                    craft_items = craft_items + item.count
-                    if item_name == "" then
-                        item_name = item.name
+                if item and item.name == resultCandidate then
+                    local beforeCount = (before[slot] and before[slot].count) or 0
+                    local delta = item.count - beforeCount
+                    if delta > 0 then
+                        local moved = device.pushItems(barrel_name, slot, delta)
+                        if moved then
+                            craft_items = craft_items + moved
+                        end
                     end
                 end
             end
         end
 
-        if item_name ~= "" then
+        if craft_items > 0 then
             bf = true
             print("Process output detected: " .. item_name .. " x" .. craft_items)
         else
@@ -837,8 +859,171 @@ local function btn_craft(selectedItem, batches)
     clearBarrelToStorage()
 
     if recipe.type == "processing" and recipe.machine and recipe.machine ~= "crafting_table" then
-        -- Код обработки механизмов...
-        return true
+        local machineName = recipe.machine
+        local device = peripheral.wrap(machineName)
+        if not device then
+            print("Machine not found: " .. tostring(machineName))
+            return false
+        end
+
+        local before = getInterfaceContents(machineName)
+
+        local movedAny = false
+        for i = 1, 9 do
+            local neededItem = recipe.pattern[i]
+            if neededItem and neededItem ~= " " then
+                local remaining = batches
+                for _, storage in ipairs(storages) do
+                    if remaining <= 0 then break end
+                    local items = getAllItemsFromStorage(storage.peripheral)
+                    for slot, item in pairs(items) do
+                        if item.name == neededItem and item.count > 0 then
+                            local take = math.min(remaining, item.count)
+                            local moved = storage.peripheral.pushItems(machineName, slot, take)
+                            if moved and moved > 0 then
+                                remaining = remaining - moved
+                                movedAny = true
+                            end
+                            if remaining <= 0 then break end
+                        end
+                    end
+                end
+                if remaining > 0 and barrel and barrel.list then
+                    local barrelItems = barrel.list()
+                    for slot, item in pairs(barrelItems) do
+                        if remaining <= 0 then break end
+                        if item and item.name == neededItem and item.count > 0 then
+                            local take = math.min(remaining, item.count)
+                            local moved = barrel.pushItems(machineName, slot, take)
+                            if moved and moved > 0 then
+                                remaining = remaining - moved
+                                movedAny = true
+                            end
+                        end
+                    end
+                end
+                if remaining > 0 then
+                    print("Not enough ingredients for " .. neededItem)
+                    return false
+                end
+            end
+        end
+
+        if not movedAny then
+            print("No items transferred to machine: " .. machineName)
+            return false
+        end
+
+        local inputSet = {}
+        for _, name in ipairs(recipe.pattern) do
+            if name and name ~= " " then
+                inputSet[name] = true
+            end
+        end
+
+        local expectedPerBatch = recipe.craft or 1
+        local expectedTotal = batches * expectedPerBatch
+
+        local resultName = nil
+        local totalMovedOut = 0
+        local timeout = 120
+        local startTime = os.clock()
+
+        while os.clock() - startTime < timeout do
+            local after = getInterfaceContents(machineName)
+            if not resultName then
+                local currentOutputs = {}
+                for slot, item in pairs(after) do
+                    if item and item.name and not inputSet[item.name] then
+                        local beforeCount = (before[slot] and before[slot].count) or 0
+                        local delta = item.count - beforeCount
+                        if delta > 0 then
+                            currentOutputs[item.name] = (currentOutputs[item.name] or 0) + delta
+                        end
+                    end
+                end
+                local maxName, maxCount = nil, 0
+                for name, cnt in pairs(currentOutputs) do
+                    if cnt > maxCount then
+                        maxName, maxCount = name, cnt
+                    end
+                end
+                if maxName then
+                    resultName = maxName
+                else
+                    for _, item in pairs(after) do
+                        if item and item.name and not inputSet[item.name] then
+                            resultName = item.name
+                            break
+                        end
+                    end
+                end
+            end
+
+            if resultName then
+                local outputSlots = {}
+                local seenSlots = {}
+                if recipe.outputSlots and #recipe.outputSlots > 0 then
+                    for _, s in ipairs(recipe.outputSlots) do
+                        if not seenSlots[s] then
+                            seenSlots[s] = true
+                            table.insert(outputSlots, s)
+                        end
+                    end
+                end
+                local detectedSlots = detectOutputSlots(machineName, before, resultName) or {}
+                for _, s in ipairs(detectedSlots) do
+                    if not seenSlots[s] then
+                        seenSlots[s] = true
+                        table.insert(outputSlots, s)
+                    end
+                end
+                for slot, item in pairs(after) do
+                    if item and item.name == resultName and not seenSlots[slot] then
+                        seenSlots[slot] = true
+                        table.insert(outputSlots, slot)
+                    end
+                end
+
+                local pulledThisCycle = 0
+                for _, slot in ipairs(outputSlots) do
+                    local item = device.getItemDetail(slot)
+                    if item and item.name == resultName and item.count > 0 then
+                        local moved = device.pushItems(barrel_name, slot, item.count)
+                        if moved and moved > 0 then
+                            totalMovedOut = totalMovedOut + moved
+                            pulledThisCycle = pulledThisCycle + moved
+                        end
+                    end
+                end
+
+                if pulledThisCycle > 0 then
+                    before = getInterfaceContents(machineName)
+                end
+
+                local afterMove = getInterfaceContents(machineName)
+                local remainingOutput = false
+                for _, item in pairs(afterMove) do
+                    if item and item.name == resultName then
+                        remainingOutput = true
+                        break
+                    end
+                end
+
+                if not remainingOutput and totalMovedOut >= expectedTotal then
+                    return true
+                end
+            end
+
+            os.sleep(1)
+        end
+
+        if totalMovedOut > 0 then
+            return true
+        end
+
+        print("Cannot detect or move machine output for " .. tostring(machineName))
+        return false
     end
 
     local slots = {4, 5, 6, 13, 14, 15, 22, 23, 24}
@@ -854,8 +1039,28 @@ local function btn_craft(selectedItem, batches)
                     if item.name == neededItem and item.count > 0 then
                         local take = math.min(remaining, item.count)
                         local moved = storage.peripheral.pushItems(barrel_name, slot, take, targetSlot)
-                        remaining = remaining - moved
+                        if moved and moved > 0 then
+                            remaining = remaining - moved
+                        end
                         if remaining <= 0 then break end
+                    end
+                end
+            end
+            if remaining > 0 and barrel and barrel.list then
+                local barrelItems = barrel.list()
+                for slot, item in pairs(barrelItems) do
+                    if remaining <= 0 then break end
+                    if item and item.name == neededItem and item.count > 0 then
+                        if slot == targetSlot then
+                            local take = math.min(remaining, item.count)
+                            remaining = remaining - take
+                        else
+                            local take = math.min(remaining, item.count)
+                            local moved = barrel.pushItems(barrel_name, slot, take, targetSlot)
+                            if moved and moved > 0 then
+                                remaining = remaining - moved
+                            end
+                        end
                     end
                 end
             end
@@ -889,6 +1094,10 @@ local function buildCraftPlan(targetItem, desiredCount)
     for _, storage in ipairs(storages) do
         local items = getAllItemsFromStorage(storage.peripheral)
         for _, item in pairs(items) do virtualInv[item.name] = (virtualInv[item.name] or 0) + item.count end
+    end
+    local barrelItems = getAllItemsFromBarrel()
+    for name, count in pairs(barrelItems) do
+        virtualInv[name] = (virtualInv[name] or 0) + count
     end
 
     local function calculate(item, amount, isFinal)
